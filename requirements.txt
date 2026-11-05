@@ -1,0 +1,18 @@
+# Pinned. Embeddings: Voyage AI (voyage-4-lite) through MongoDB Atlas; the client version
+# is recorded in the dump and compared by `check`.
+mcp==2.3.0
+voyageai==0.5.0
+tokenizers==0.23.3
+numpy==2.5.4
+psycopg[binary]==3.3.8
+psycopg-pool==3.3.3
+pgvector==0.5.1
+uvicorn==0.54.0
+watchfiles==1.3.0
+httpx==0.28.1
+pyyaml==6.0.3
+anthropic==2.6.0
+openai==3.46.0
+# ingestion only (instructor), small enough to keep in one image
+lxml==6.1.3
+pytest==8.4.2

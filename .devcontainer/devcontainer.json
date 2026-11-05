@@ -1,0 +1,18 @@
+{
+  // Fallback for attendees whose laptop can't run Docker: open the repo in GitHub Codespaces.
+  // Docker-in-Docker runs the same compose stack inside the codespace.
+  "name": "EDGAR MCP workshop",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": {}
+  },
+  "hostRequirements": { "cpus": 4, "memory": "8gb" },
+  "forwardPorts": [8000],
+  "portsAttributes": { "8000": { "label": "MCP server", "onAutoForward": "silent" } },
+  "postCreateCommand": "docker compose pull",
+  "postStartCommand": "docker compose up -d",
+  "customizations": {
+    "vscode": { "extensions": ["ms-python.python"] }
+  }
+}

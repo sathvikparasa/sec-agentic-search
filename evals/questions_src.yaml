@@ -1,0 +1,320 @@
+# Eval question SOURCE. Gold answers are NOT written here: evals/build_gold.py runs each
+# gold_sql against the dataset and writes evals/questions.yaml (answers + supporting fact ids).
+#
+# gold_sql conventions
+#   numeric: one row: value, fact_ids (bigint[] of the facts the answer is computed from)
+#   ranking: rows ordered best first: ticker, metric, fact_ids; top_n taken from the top
+#   text:    gold_chunks_sql returns candidate chunk ids (DRAFT, needs_review: true)
+#   hybrid:  a numeric or ranking gold_sql plus the text fields
+#
+# "Fiscal year" always means the company's own fiscal year (facts.fiscal_year).
+# single_tag_trap: true marks ranking questions where querying only
+# RevenueFromContractWithCustomerExcludingAssessedTax gives the wrong answer (checked by build_gold).
+
+questions:
+  # ------------------------------------------------------------------ numeric (10)
+  - id: N01
+    category: numeric
+    question: "What was Airbnb's net income (loss) for fiscal year 2020, the year it went public?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='ABNB' AND concept='NetIncomeLoss' AND period_type='annual' AND unit='USD' AND fiscal_year=2020
+  - id: N02
+    category: numeric
+    question: "What was NVIDIA's total revenue for its fiscal year 2025?"
+    gold_sql: |
+      SELECT value, ARRAY[fact_id] AS fact_ids FROM revenue
+      WHERE ticker='NVDA' AND period_type='annual' AND fiscal_year=2025
+  - id: N03
+    category: numeric
+    question: "What was Tesla's total revenue in fiscal year 2024, including automotive leasing and all other revenue?"
+    gold_sql: |
+      SELECT value, ARRAY[fact_id] AS fact_ids FROM revenue
+      WHERE ticker='TSLA' AND period_type='annual' AND fiscal_year=2024
+  - id: N04
+    category: numeric
+    question: "How much did Snowflake spend on research and development in fiscal year 2025?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='SNOW' AND concept='ResearchAndDevelopmentExpense' AND period_type='annual'
+        AND unit='USD' AND fiscal_year=2025
+  - id: N05
+    category: numeric
+    question: "What was Coinbase's net income for fiscal year 2023?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='COIN' AND concept='NetIncomeLoss' AND period_type='annual' AND unit='USD' AND fiscal_year=2023
+  - id: N06
+    category: numeric
+    question: "How much cash and cash equivalents did Apple report at the end of its fiscal year 2025?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='AAPL' AND concept='CashAndCashEquivalentsAtCarryingValue' AND period_type='instant'
+        AND unit='USD' AND fiscal_year=2025
+        AND end_date = (SELECT period_end FROM filings WHERE ticker='AAPL' AND form='10-K' AND fiscal_year=2025)
+  - id: N07
+    category: numeric
+    question: "What was Microsoft's operating income for fiscal year 2026?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='MSFT' AND concept='OperatingIncomeLoss' AND period_type='annual' AND unit='USD' AND fiscal_year=2026
+  - id: N08
+    category: numeric
+    question: "How much cash did Uber's operating activities provide in fiscal year 2024?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='UBER' AND concept='NetCashProvidedByUsedInOperatingActivities' AND period_type='annual'
+        AND unit='USD' AND fiscal_year=2024
+  - id: N09
+    category: numeric
+    question: "What was Palantir's diluted earnings per share for fiscal year 2024?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='PLTR' AND concept='EarningsPerShareDiluted' AND period_type='annual'
+        AND unit='USD/shares' AND fiscal_year=2024
+  - id: N10
+    category: numeric
+    question: "By what percent did Roblox's revenue grow from fiscal year 2023 to fiscal year 2024?"
+    rel_tol: 0.02
+    gold_sql: |
+      SELECT round((a.value / b.value - 1) * 100, 2) AS value, ARRAY[a.fact_id, b.fact_id] AS fact_ids
+      FROM revenue a JOIN revenue b ON b.ticker = a.ticker AND b.period_type = 'annual' AND b.fiscal_year = 2023
+      WHERE a.ticker='RBLX' AND a.period_type='annual' AND a.fiscal_year=2024
+
+  # ------------------------------------------------------------------ ranking / aggregation (8)
+  - id: R01
+    category: ranking
+    single_tag_trap: true
+    question: "Which five companies in the dataset had the highest revenue in fiscal year 2025? List them from highest to lowest."
+    top_n: 5
+    gold_sql: |
+      SELECT ticker, value AS metric, ARRAY[fact_id] AS fact_ids FROM revenue
+      WHERE period_type='annual' AND fiscal_year=2025 ORDER BY value DESC
+  - id: R02
+    category: ranking
+    single_tag_trap: true
+    question: "Which three companies grew revenue fastest (in percent) from fiscal year 2024 to fiscal year 2025?"
+    top_n: 3
+    gold_sql: |
+      SELECT a.ticker, round((a.value / b.value - 1) * 100, 2) AS metric, ARRAY[a.fact_id, b.fact_id] AS fact_ids
+      FROM revenue a JOIN revenue b ON b.ticker = a.ticker AND b.period_type = 'annual' AND b.fiscal_year = 2024
+      WHERE a.period_type = 'annual' AND a.fiscal_year = 2025
+      ORDER BY metric DESC
+  - id: R03
+    category: ranking
+    single_tag_trap: true
+    question: "Among the companies that went public between 2019 and 2021, which three had the highest revenue in fiscal year 2025?"
+    top_n: 3
+    gold_sql: |
+      SELECT r.ticker, r.value AS metric, ARRAY[r.fact_id] AS fact_ids
+      FROM revenue r JOIN companies c USING (ticker)
+      WHERE c.ipo_date BETWEEN '2019-01-01' AND '2021-12-31' AND r.period_type='annual' AND r.fiscal_year=2025
+      ORDER BY r.value DESC
+  - id: R04
+    category: ranking
+    single_tag_trap: true
+    question: "Which companies had more than $100 billion of revenue in fiscal year 2025? List all of them, largest first."
+    top_n: all
+    gold_sql: |
+      SELECT ticker, value AS metric, ARRAY[fact_id] AS fact_ids FROM revenue
+      WHERE period_type='annual' AND fiscal_year=2025 AND value > 100e9 ORDER BY value DESC
+  - id: R05
+    category: ranking
+    question: "Which three companies had the highest net income in fiscal year 2025?"
+    top_n: 3
+    gold_sql: |
+      SELECT ticker, value AS metric, ARRAY[id] AS fact_ids FROM facts
+      WHERE concept='NetIncomeLoss' AND period_type='annual' AND unit='USD' AND fiscal_year=2025
+      ORDER BY value DESC
+  - id: R06
+    category: ranking
+    question: "Which three companies reported the largest net losses in fiscal year 2024 (most negative net income first)?"
+    top_n: 3
+    gold_sql: |
+      SELECT ticker, value AS metric, ARRAY[id] AS fact_ids FROM facts
+      WHERE concept='NetIncomeLoss' AND period_type='annual' AND unit='USD' AND fiscal_year=2024
+      ORDER BY value ASC
+  - id: R07
+    category: ranking
+    question: "Which three companies spent the most on research and development in fiscal year 2025?"
+    top_n: 3
+    gold_sql: |
+      SELECT ticker, value AS metric, ARRAY[id] AS fact_ids FROM facts
+      WHERE concept='ResearchAndDevelopmentExpense' AND period_type='annual' AND unit='USD' AND fiscal_year=2025
+      ORDER BY value DESC
+  - id: R08
+    category: ranking
+    question: "Which three companies held the most cash and cash equivalents at the end of fiscal year 2025?"
+    top_n: 3
+    gold_sql: |
+      SELECT f.ticker, f.value AS metric, ARRAY[f.id] AS fact_ids FROM facts f
+      JOIN filings fl ON fl.ticker = f.ticker AND fl.form = '10-K' AND fl.fiscal_year = 2025 AND f.end_date = fl.period_end
+      WHERE f.concept='CashAndCashEquivalentsAtCarryingValue' AND f.period_type='instant' AND f.unit='USD'
+      ORDER BY f.value DESC
+
+  # ------------------------------------------------------------------ text (8)
+  - id: T01
+    category: text
+    question: "What risks related to the classification of Dashers as independent contractors did DoorDash disclose in its S-1?"
+    ticker: DASH
+    form: S-1
+    must_mention: [["independent contractor"], ["AB5", "Assembly Bill 5", "AB 5"]]
+    notes: "Dashers could be reclassified as employees; California AB5 and similar laws/litigation; costs, penalties, changes to the business model."
+    gold_chunks_sql: |
+      SELECT id FROM chunks WHERE ticker='DASH' AND form='S-1' AND section='risk_factors'
+        AND text ILIKE '%independent contractor%' AND (text ILIKE '%AB5%' OR text ILIKE '%Assembly Bill 5%')
+      ORDER BY chunk_index
+  - id: T02
+    category: text
+    question: "According to Airbnb's IPO prospectus, how did the COVID-19 pandemic affect its business?"
+    ticker: ABNB
+    form: S-1
+    must_mention: [["COVID"], ["cancel", "decline", "decrease"]]
+    notes: "Sharp drop in bookings/nights, cancellations and refunds, cost cuts and layoffs, shift to local/domestic and longer stays."
+    gold_chunks_sql: |
+      SELECT id FROM chunks WHERE ticker='ABNB' AND form='S-1' AND section='risk_factors'
+        AND text ILIKE '%COVID-19%' AND (text ILIKE '%cancel%' OR text ILIKE '%decline in%')
+      ORDER BY chunk_index LIMIT 12
+  - id: T03
+    category: text
+    question: "What did Coinbase's S-1 say about the risk that crypto assets on its platform could be deemed securities?"
+    ticker: COIN
+    form: S-1
+    must_mention: [["securit"], ["SEC", "Securities and Exchange Commission"]]
+    notes: "If a supported crypto asset is deemed a security, Coinbase could face enforcement, need to register (e.g. as an exchange/broker-dealer), delist assets."
+    gold_chunks_sql: |
+      SELECT id FROM chunks WHERE ticker='COIN' AND form='S-1' AND section='risk_factors'
+        AND text ILIKE '%deemed%' AND text ILIKE '%security%' AND text ILIKE '%SEC%'
+      ORDER BY chunk_index LIMIT 12
+  - id: T04
+    category: text
+    question: "How does Snowflake describe the way it charges customers (its business model) in its latest 10-K?"
+    ticker: SNOW
+    form: 10-K
+    must_mention: [["consumption"]]
+    notes: "Consumption-based model: customers pay for compute/storage used, often via capacity contracts; revenue recognized on consumption."
+    gold_chunks_sql: |
+      SELECT c.id FROM chunks c JOIN filings f USING (accession)
+      WHERE c.ticker='SNOW' AND c.form='10-K' AND c.section='business' AND c.text ILIKE '%consumption%'
+        AND f.filed = (SELECT max(filed) FROM filings WHERE ticker='SNOW' AND form='10-K')
+      ORDER BY c.chunk_index LIMIT 10
+  - id: T05
+    category: text
+    question: "What risks does Roblox's S-1 describe about depending on its developers and creators?"
+    ticker: RBLX
+    form: S-1
+    must_mention: [["developer", "creator"]]
+    notes: "Relies on developers/creators to build experiences and content; if they leave or don't create engaging content, users and bookings decline."
+    gold_chunks_sql: |
+      SELECT id FROM chunks WHERE ticker='RBLX' AND form='S-1' AND section='risk_factors'
+        AND (text ILIKE '%developers and creators%' OR text ILIKE '%developers%attract%')
+      ORDER BY chunk_index LIMIT 12
+  - id: T06
+    category: text
+    question: "What does NVIDIA's most recent 10-K say about U.S. export controls and China?"
+    ticker: NVDA
+    form: 10-K
+    must_mention: [["export"], ["China"]]
+    notes: "US export restrictions/licensing requirements on advanced GPUs to China and other regions reduce sales and competitiveness."
+    gold_chunks_sql: |
+      SELECT c.id FROM chunks c JOIN filings f USING (accession)
+      WHERE c.ticker='NVDA' AND c.form='10-K' AND c.section='risk_factors'
+        AND c.text ILIKE '%export control%' AND c.text ILIKE '%China%'
+        AND f.filed = (SELECT max(filed) FROM filings WHERE ticker='NVDA' AND form='10-K')
+      ORDER BY c.chunk_index LIMIT 12
+  - id: T07
+    category: text
+    question: "In its latest 10-K risk factors, what does Uber say could happen if drivers were classified as employees instead of independent contractors?"
+    ticker: UBER
+    form: 10-K
+    must_mention: [["employee"], ["independent contractor"]]
+    notes: "Reclassification would raise costs (wages, benefits, taxes), require business model changes, and bring penalties/litigation."
+    gold_chunks_sql: |
+      SELECT c.id FROM chunks c JOIN filings f USING (accession)
+      WHERE c.ticker='UBER' AND c.form='10-K' AND c.section='risk_factors'
+        AND c.text ILIKE '%independent contractor%' AND c.text ILIKE '%employee%' AND c.text ILIKE '%classif%'
+        AND f.filed = (SELECT max(filed) FROM filings WHERE ticker='UBER' AND form='10-K')
+      ORDER BY c.chunk_index LIMIT 12
+  - id: T08
+    category: text
+    question: "Which competitors did Zoom name in its IPO prospectus?"
+    ticker: ZM
+    form: S-1
+    must_mention: [["Webex"], ["Skype"], ["LogMeIn"]]
+    notes: "S-1 'Our Competition': legacy web meeting providers incl. Webex and Skype for Business; bundled productivity suites incl. Google; point solutions incl. LogMeIn; legacy PBX providers (Zoom Phone)."
+    gold_chunks_sql: |
+      SELECT id FROM chunks WHERE ticker='ZM' AND form='S-1'
+        AND text ILIKE '%Skype for Business%' AND text ILIKE '%LogMeIn%'
+      ORDER BY chunk_index
+
+  # ------------------------------------------------------------------ hybrid: numbers + text (4)
+  - id: H01
+    category: hybrid
+    question: "Which company grew revenue the fastest from fiscal year 2024 to fiscal year 2025, and what did its MD&A credit for the growth?"
+    top_n: 1
+    gold_sql: |
+      SELECT a.ticker, round((a.value / b.value - 1) * 100, 2) AS metric, ARRAY[a.fact_id, b.fact_id] AS fact_ids
+      FROM revenue a JOIN revenue b ON b.ticker = a.ticker AND b.period_type = 'annual' AND b.fiscal_year = 2024
+      WHERE a.period_type = 'annual' AND a.fiscal_year = 2025
+      ORDER BY metric DESC
+    text_from: top1      # build_gold checks the SQL winner is still this ticker
+    ticker: NVDA
+    form: 10-K
+    must_mention: [["Data Center"], ["Hopper", "generative AI", "large language model", "accelerated computing"]]
+    notes: "NVIDIA FY2025 (ended Jan 2025): Data Center revenue up 142%, driven by demand for the Hopper accelerated computing platform for LLMs, recommendation engines and generative AI."
+    gold_chunks_sql: |
+      SELECT c.id FROM chunks c JOIN filings f USING (accession)
+      WHERE c.ticker='NVDA' AND c.section='mda' AND f.fiscal_year=2025
+        AND c.text ILIKE '%Data Center revenue for fiscal year 2025%'
+      ORDER BY c.chunk_index
+  - id: H02
+    category: hybrid
+    question: "By what percent did Uber's revenue grow in fiscal year 2024, and what does its MD&A attribute the growth to?"
+    gold_sql: |
+      SELECT round((a.value / b.value - 1) * 100, 2) AS value, ARRAY[a.fact_id, b.fact_id] AS fact_ids
+      FROM revenue a JOIN revenue b ON b.ticker = a.ticker AND b.period_type = 'annual' AND b.fiscal_year = 2023
+      WHERE a.ticker='UBER' AND a.period_type='annual' AND a.fiscal_year=2024
+    ticker: UBER
+    form: 10-K
+    must_mention: [["Mobility"], ["Delivery"]]
+    notes: "Growth driven by Mobility and Delivery gross bookings / trip growth."
+    gold_chunks_sql: |
+      SELECT c.id FROM chunks c JOIN filings f USING (accession)
+      WHERE c.ticker='UBER' AND c.section='mda' AND f.fiscal_year=2024
+        AND c.text ILIKE '%revenue%increase%' AND c.text ILIKE '%Mobility%'
+      ORDER BY c.chunk_index LIMIT 10
+  - id: H03
+    category: hybrid
+    question: "What was CrowdStrike's net income for fiscal year 2025, and what does its 10-K say caused the July 2024 incident?"
+    gold_sql: |
+      SELECT value, ARRAY[id] AS fact_ids FROM facts
+      WHERE ticker='CRWD' AND concept='NetIncomeLoss' AND period_type='annual' AND unit='USD' AND fiscal_year=2025
+    ticker: CRWD
+    form: 10-K
+    must_mention: [["Channel File 291", "content configuration update", "content update", "sensor configuration update"]]
+    notes: "A defective content configuration update for the Falcon sensor (Channel File 291) on July 19, 2024 crashed Windows hosts."
+    gold_chunks_sql: |
+      SELECT c.id FROM chunks c JOIN filings f USING (accession)
+      WHERE c.ticker='CRWD' AND f.fiscal_year=2025
+        AND (c.text ILIKE '%Channel File 291%' OR c.text ILIKE '%July 19, 2024%')
+      ORDER BY c.chunk_index LIMIT 12
+  - id: H04
+    category: hybrid
+    question: "Of the companies that went public in 2020, which had the highest revenue in fiscal year 2025, and how does it describe its business in its latest 10-K?"
+    top_n: 1
+    gold_sql: |
+      SELECT r.ticker, r.value AS metric, ARRAY[r.fact_id] AS fact_ids
+      FROM revenue r JOIN companies c USING (ticker)
+      WHERE extract(year FROM c.ipo_date) = 2020 AND r.period_type='annual' AND r.fiscal_year=2025
+      ORDER BY r.value DESC
+    text_from: top1
+    ticker: DASH
+    form: 10-K
+    must_mention: [["local commerce", "local economies"], ["merchant"]]
+    notes: "DoorDash: mission to grow and empower local economies; local commerce platform connecting merchants, consumers and Dashers (Marketplace, Commerce Platform)."
+    gold_chunks_sql: |
+      SELECT c.id FROM chunks c JOIN filings f USING (accession)
+      WHERE c.ticker='DASH' AND c.section='business'
+        AND f.filed = (SELECT max(filed) FROM filings WHERE ticker='DASH' AND form='10-K')
+        AND (c.text ILIKE '%local commerce%' OR c.text ILIKE '%local economies%')
+      ORDER BY c.chunk_index

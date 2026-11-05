@@ -1,0 +1,7 @@
+---
+description: EDGAR MCP workshop context (schema, tool contracts, EDGAR quirks, read-only rules)
+alwaysApply: true
+---
+Read and follow @CLAUDE.md (identical content is in @AGENTS.md). It has the database schema,
+the tool contract for each stage, the EDGAR data quirks, and the rule that every tool stays
+read-only and never calls the SEC API.

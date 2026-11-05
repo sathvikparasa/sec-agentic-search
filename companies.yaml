@@ -1,0 +1,52 @@
+# Companies in the dataset. Instructor-curated; confirmed 2026-11-05.
+# cik: verified against https://www.sec.gov/files/company_tickers.json by the fetch pipeline.
+# ipo_date: first trading day. Only set for companies whose IPO S-1 is in scope
+#   (2015-and-later IPOs). Cross-checked against EDGAR (424B4 / EFFECT filing dates)
+#   by the pipeline; see data/report.md for any that couldn't be confirmed.
+# listing: "ipo" or "direct" (direct listings filed an S-1 but no underwritten 424B4).
+companies:
+  # Large-cap
+  - {ticker: AAPL, cik: 320193}
+  - {ticker: MSFT, cik: 789019}
+  - {ticker: GOOGL, cik: 1652044}
+  - {ticker: AMZN, cik: 1018724}
+  - {ticker: META, cik: 1326801}
+  - {ticker: NVDA, cik: 1045810}
+  - {ticker: TSLA, cik: 1318605}
+  - {ticker: NFLX, cik: 1065280}
+  # Enterprise software
+  - {ticker: CRM, cik: 1108524}
+  - {ticker: ADBE, cik: 796343}
+  - {ticker: ORCL, cik: 1341439}
+  - {ticker: NOW, cik: 1373715}
+  - {ticker: INTU, cik: 896878}
+  - {ticker: WDAY, cik: 1327811}
+  - {ticker: ADSK, cik: 769397}
+  # Semiconductors
+  - {ticker: AMD, cik: 2488}
+  - {ticker: INTC, cik: 50863}
+  - {ticker: QCOM, cik: 804328}
+  # 2019-2021 IPOs (S-1 in scope)
+  - {ticker: UBER, cik: 1543151, ipo_date: 2019-05-10, listing: ipo}
+  - {ticker: LYFT, cik: 1759509, ipo_date: 2019-03-29, listing: ipo}
+  - {ticker: PINS, cik: 1506293, ipo_date: 2019-04-18, listing: ipo}
+  - {ticker: ZM, cik: 1585521, ipo_date: 2019-04-18, listing: ipo}
+  - {ticker: CRWD, cik: 1535527, ipo_date: 2019-06-12, listing: ipo}
+  - {ticker: DDOG, cik: 1561550, ipo_date: 2019-09-19, listing: ipo}
+  - {ticker: ABNB, cik: 1559720, ipo_date: 2020-12-10, listing: ipo}
+  - {ticker: DASH, cik: 1792789, ipo_date: 2020-12-09, listing: ipo}
+  - {ticker: SNOW, cik: 1640147, ipo_date: 2020-09-16, listing: ipo}
+  - {ticker: PLTR, cik: 1321655, ipo_date: 2020-09-30, listing: direct}
+  - {ticker: U, cik: 1810806, ipo_date: 2020-09-18, listing: ipo}
+  - {ticker: RBLX, cik: 1315098, ipo_date: 2021-03-10, listing: direct}
+  - {ticker: COIN, cik: 1679788, ipo_date: 2021-04-14, listing: direct}
+  - {ticker: HOOD, cik: 1783879, ipo_date: 2021-07-29, listing: ipo}
+  - {ticker: RIVN, cik: 1874178, ipo_date: 2021-11-10, listing: ipo}
+  - {ticker: DUOL, cik: 1562088, ipo_date: 2021-07-28, listing: ipo}
+  - {ticker: BMBL, cik: 1830043, ipo_date: 2021-02-11, listing: ipo}
+  # Earlier IPOs (2015+, S-1 in scope)
+  - {ticker: SNAP, cik: 1564408, ipo_date: 2017-03-02, listing: ipo}
+  - {ticker: XYZ, cik: 1512673, ipo_date: 2015-11-19, listing: ipo, note: "Block, Inc.; IPO'd as Square (SQ)"}
+  - {ticker: TWLO, cik: 1447669, ipo_date: 2016-06-23, listing: ipo}
+  - {ticker: DOCU, cik: 1261333, ipo_date: 2018-04-27, listing: ipo}
+  - {ticker: ETSY, cik: 1370637, ipo_date: 2015-04-16, listing: ipo}

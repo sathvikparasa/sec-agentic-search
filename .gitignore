@@ -1,0 +1,9 @@
+data/*
+!data/report.md
+logs/
+__pycache__/
+*.pyc
+docker/db/edgar.dump
+evals/results/*.raw.jsonl
+.env.local
+.worktrees/

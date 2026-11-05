@@ -1,0 +1,65 @@
+# Workshop stack. Attendees: `docker compose pull`, then `docker compose up -d`.
+# Images come from GHCR (IMAGE_PREFIX in .env). Search needs VOYAGE_API_KEY in your shell.
+# Code is bind-mounted, not baked in,
+# so `git checkout stage-N` takes effect without rebuilding anything.
+name: edgar
+
+x-py: &py
+  image: ${IMAGE_PREFIX}/py:${IMAGE_TAG:-latest}
+  volumes:
+    - .:/workspace
+  environment: &pyenv
+    DATABASE_URL: postgresql://mcp_reader:mcp_reader@db:5432/edgar
+    MCP_URL: http://mcp:8000/mcp
+    TOOL_LOG: /workspace/logs/tool_calls.jsonl
+    # Query embeddings come from Voyage (MongoDB Atlas). Export it in your shell before `up`.
+    VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+
+services:
+  db:
+    image: ${IMAGE_PREFIX}/db:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/db/Dockerfile
+    healthcheck:
+      # TCP check: during the first-start restore Postgres only listens on its unix socket,
+      # so this stays unhealthy until the data is fully loaded.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d edgar"]
+      interval: 2s
+      timeout: 3s
+      retries: 150
+      start_period: 120s
+
+  mcp:
+    <<: *py
+    build:
+      context: .
+      dockerfile: docker/py/Dockerfile
+    command: ["mcp-http"]
+    ports:
+      - "127.0.0.1:${MCP_PORT:-8000}:8000"   # MCP_PORT=8001 docker compose up -d, if 8000 is taken
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+
+  app:
+    <<: *py
+    command: ["sleep", "infinity"]
+    environment:
+      <<: *pyenv
+      # Optional, for baseline.py / evals. Passed through from your shell; never stored.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      mcp:
+        condition: service_started

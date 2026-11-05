@@ -1,0 +1,1 @@
+"""EDGAR MCP server package."""
