@@ -24,6 +24,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-24.04
