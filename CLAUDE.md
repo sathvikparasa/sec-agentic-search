@@ -7,7 +7,7 @@ writes the answer.
 
 ## Where you are
 
-**Branch `main` (start here):** `ping` works; `query_financials`, `search_filings` and `get_section` are stubs. Build stage 1 first.
+**Branch `stage-1`:** `query_financials` is built (read the docstring in `edgar_mcp/server.py`). Next: stage 2, `search_filings`.
 
 ## Rules
 
