@@ -7,7 +7,7 @@ writes the answer.
 
 ## Where you are
 
-**Branch `stage-1`:** `query_financials` is built (read the docstring in `edgar_mcp/server.py`). Next: stage 2, `search_filings`.
+**Branch `stage-2`:** `query_financials` and `search_filings` are built. Next: stage 3, `get_section` and the revenue fix.
 
 ## Rules
 
