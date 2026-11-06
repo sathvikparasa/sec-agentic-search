@@ -34,7 +34,6 @@ writes the answer.
 docker compose up -d                       # db + mcp (HTTP on localhost:8000/mcp) + app
 docker compose logs -f mcp                 # server log, one line per tool call
 docker compose run --rm app check          # health check
-docker compose exec app python baseline.py "question"   # single-pass RAG, for comparison
 ```
 
 The `mcp` service reloads automatically when you save a file in `edgar_mcp/` (polling, ~1 s).

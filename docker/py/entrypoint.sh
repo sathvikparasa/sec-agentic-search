@@ -3,7 +3,6 @@
 set -e
 case "$1" in
   check)    shift; exec python -m tools.check "$@" ;;
-  baseline) shift; exec python baseline.py "$@" ;;
   smoke)    shift; exec python -m pytest -q tests "$@" ;;
   mcp-http)
     export WATCHFILES_FORCE_POLLING=1

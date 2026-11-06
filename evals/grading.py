@@ -100,7 +100,7 @@ def _numeric_citation(gold, parsed, run) -> bool:
     for r in rows:  # same number under a different (equivalent) fact row
         if any(r[1] == s["ticker"] and _close(r[2], s["value"], 1e-6) for s in support):
             return True
-    # chunk citations (baseline): the cited passage must contain a supporting number
+    # a cited passage that states a supporting number also counts
     chunks = _fetch("SELECT ticker, text FROM chunks WHERE id = ANY(%s)", _ids(parsed, "chunk_ids"))
     for tk, text in chunks:
         for s in support:

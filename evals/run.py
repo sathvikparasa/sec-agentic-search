@@ -1,12 +1,11 @@
-"""Eval harness (instructor-run). Compares single-pass RAG with agentic search.
+"""Eval harness (instructor-run). Measures the agent using each stage's tools.
 
     # inside the app container, with ANTHROPIC_API_KEY passed through:
-    python -m evals.run --mode baseline
-    python -m evals.run --mode agentic --stage 2      # tools as on the stage-2 branch
-    python -m evals.run --mode agentic --stage 3      # + get_section and the revenue fix
-    python -m evals.run --mode agentic --stage 3 --judge   # add the optional LLM judge column
+    python -m evals.run --stage 2            # tools as on the stage-2 branch
+    python -m evals.run --stage 3            # + get_section and the revenue fix
+    python -m evals.run --stage 3 --judge    # add the optional LLM judge column
 
-Agentic mode loads the MCP server code from a git worktree of that stage branch
+It loads the MCP server code from a git worktree of that stage branch
 (.worktrees/stage-N; create with evals/setup_worktrees.sh on the host), so the
 agent sees exactly the tool descriptions attendees see on that branch.
 
@@ -97,25 +96,6 @@ def extract_json(text: str):
     return None
 
 
-# ---------------------------------------------------------------- baseline
-
-async def run_baseline(q: dict) -> dict:
-    import anthropic
-    from baseline import SYSTEM, build_prompt, retrieve
-    t0 = time.perf_counter()
-    chunks = await asyncio.to_thread(retrieve, q["question"])
-    client = anthropic.AsyncAnthropic()
-    resp = await client.messages.create(
-        model=MODEL, max_tokens=8000, system=SYSTEM + "\n\n" + ANSWER_FORMAT,
-        output_config={"effort": EFFORT},
-        messages=[{"role": "user", "content": build_prompt(q["question"], chunks)}],
-    )
-    text = "".join(b.text for b in resp.content if b.type == "text")
-    return {"reply": text, "seconds": time.perf_counter() - t0, "tool_calls": [],
-            "retrieved_chunk_ids": [c["id"] for c in chunks], "stop_reason": resp.stop_reason,
-            "usage": resp.usage.model_dump()}
-
-
 # ---------------------------------------------------------------- agentic
 
 def load_stage_server(stage: int):
@@ -180,10 +160,8 @@ async def main_async(args) -> None:
     questions = load_questions()
     if args.only:
         questions = [q for q in questions if q["id"] in set(args.only.split(","))]
-    label = args.mode if args.mode == "baseline" else f"agentic-stage{args.stage}"
-    server, server_commit = (None, None)
-    if args.mode == "agentic":
-        server, server_commit = load_stage_server(args.stage)
+    label = f"agentic-stage{args.stage}"
+    server, server_commit = load_stage_server(args.stage)
 
     sem = asyncio.Semaphore(args.concurrency)
 
@@ -191,7 +169,7 @@ async def main_async(args) -> None:
         async with sem:
             for attempt in range(3):
                 try:
-                    run = await (run_baseline(q) if args.mode == "baseline" else run_agentic(q, server))
+                    run = await run_agentic(q, server)
                     break
                 except Exception as e:  # noqa: BLE001 - record and retry transient failures
                     run = {"reply": "", "seconds": 0, "tool_calls": [], "error": repr(e)}
@@ -228,7 +206,7 @@ async def main_async(args) -> None:
     out_dir = ROOT / "evals" / "results"
     out_dir.mkdir(exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    meta = {"timestamp": stamp, "model": MODEL, "effort": EFFORT, "mode": args.mode, "stage": args.stage,
+    meta = {"timestamp": stamp, "model": MODEL, "effort": EFFORT, "stage": args.stage,
             "repo_commit": git_commit(ROOT), "server_commit": server_commit, "max_turns": MAX_TURNS}
     (out_dir / f"{stamp}-{label}.json").write_text(json.dumps(
         {"meta": meta, "summary": summary,
@@ -251,8 +229,7 @@ async def main_async(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=["baseline", "agentic"], required=True)
-    ap.add_argument("--stage", type=int, choices=[2, 3], default=3)
+    ap.add_argument("--stage", type=int, choices=[2, 3], required=True)
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--only", help="comma-separated question ids")
     ap.add_argument("--judge", action="store_true", help="OPTIONAL: add an LLM-judge column for text/hybrid")
