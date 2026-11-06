@@ -7,21 +7,21 @@ tool to call, with what arguments, and writes the answer.
 
 from __future__ import annotations
 
-import asyncio  # noqa: F401  (stage 2)
-import re  # noqa: F401  (stage 1)
+import asyncio
+import re
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from edgar_mcp import db
 from edgar_mcp.calllog import logged
-from edgar_mcp.embed import MODEL_NAME, embed_query  # noqa: F401  (embed_query: stage 2)
+from edgar_mcp.embed import MODEL_NAME, embed_query
 
 mcp = MCPServer(
     "edgar",
     instructions=(
         "Tools over SEC EDGAR data for ~40 US-listed tech companies: XBRL financial facts "
-        "(query_financials) and the text of 10-K and S-1 filings. "
+        "(query_financials) and the text of 10-K and S-1 filings (search_filings). "
         "Cite fact ids / chunk ids and filing URLs in answers."
     ),
 )
@@ -107,6 +107,58 @@ async def query_financials(sql: str) -> dict:
     return out
 
 
+FORMS = {"10k": "10-K", "10-k": "10-K", "s1": "S-1", "s-1": "S-1", "424b4": "S-1"}
+SECTIONS = {
+    "business": "business", "item 1": "business",
+    "risk_factors": "risk_factors", "risk factors": "risk_factors", "risks": "risk_factors",
+    "item 1a": "risk_factors",
+    "mda": "mda", "md&a": "mda", "item 7": "mda",
+    "management's discussion and analysis": "mda",
+}
+
+
+def _norm(value: str | None, table: dict, what: str) -> str | None:
+    if value is None or value == "":
+        return None
+    key = value.strip().lower().replace("_", " ") if what == "section" else value.strip().lower()
+    key = key if key in table else key.replace(" ", "_")
+    if key not in table:
+        raise ToolError(f"Unknown {what} {value!r}. Use one of: {sorted(set(table.values()))}")
+    return table[key]
+
+
+SEARCH_SQL = """
+WITH tsq AS (
+    -- keyword side: OR the query's terms together (plain AND would demand every word)
+    SELECT replace(plainto_tsquery('english', %(qtext)s)::text, '&', '|')::tsquery AS q
+), vec AS (
+    SELECT id, row_number() OVER (ORDER BY embedding <=> %(qvec)s::vector) AS rank
+    FROM chunks
+    WHERE {where}
+    ORDER BY embedding <=> %(qvec)s::vector
+    LIMIT 50
+), kw AS (
+    SELECT id, row_number() OVER (ORDER BY ts_rank_cd(tsv, tsq.q) DESC) AS rank
+    FROM chunks, tsq
+    WHERE tsv @@ tsq.q AND {where}
+    ORDER BY ts_rank_cd(tsv, tsq.q) DESC
+    LIMIT 50
+), fused AS (
+    SELECT id, sum(1.0 / (60 + rank)) AS score
+    FROM (SELECT * FROM vec UNION ALL SELECT * FROM kw) AS both_lists
+    GROUP BY id
+    ORDER BY score DESC
+    LIMIT %(top_k)s
+)
+SELECT c.id AS chunk_id, c.ticker, c.form, c.filed, c.section, c.accession, f.url,
+       round(fused.score::numeric, 5) AS score, c.text
+FROM fused
+JOIN chunks c USING (id)
+JOIN filings f ON f.accession = c.accession
+ORDER BY fused.score DESC
+"""
+
+
 @mcp.tool()
 @logged
 async def search_filings(
@@ -116,13 +168,51 @@ async def search_filings(
     section: str | None = None,
     top_k: int = 8,
 ) -> dict:
-    """TODO (stage 2): hybrid keyword + vector search over 10-K and S-1 text.
+    """Search the text of 10-K annual reports and S-1 IPO prospectuses. Hybrid search: keyword
+    (full-text) and semantic (vector) results merged with reciprocal rank fusion.
 
-    Replace this docstring with one written for the calling agent: what's searchable, the
-    filters, what comes back, and when NOT to use it. See CLAUDE.md -> "Stage 2".
-    Helpers you'll want: embed_query(query) and db.fetch(sql, params).
+    Use for WORDS, not numbers: risks, strategy, business model, competition, regulation, what
+    management credits for results, what a company said at its IPO. Do NOT use it for numbers,
+    rankings or trends. Passages are a handful of excerpts, not the data; use query_financials.
+
+    What's searchable
+    - 10-K: the 3 latest annual reports per company. Sections 'business' (Item 1),
+      'risk_factors' (Item 1A), 'mda' (Item 7, management's discussion and analysis of results).
+    - S-1: the final IPO prospectus, for companies that went public in 2015 or later (ABNB, DASH,
+      SNOW, COIN, RBLX, UBER, ...). Sections 'business' and 'risk_factors'.
+    - Not included: 10-Qs, 8-Ks, financial statement notes, S-1 MD&A.
+
+    Args
+      query: what you're looking for, in plain words. Specific beats broad:
+             "independent contractor classification of Dashers" beats "risks".
+      ticker: e.g. 'DASH'. Use it whenever the question is about one company.
+      form: '10-K' or 'S-1'.
+      section: 'business', 'risk_factors' or 'mda'.
+      top_k: number of passages (default 8, max 20).
+
+    Returns {results: [{chunk_id, ticker, form, filed, section, accession, url, score, text}]},
+    best first. Each passage is ~400 words. Cite chunk_id and url. Several narrow searches beat
+    one broad one; if results look off-topic, rephrase or add filters.
     """
-    raise NotBuiltYet("search_filings isn't built yet. See CLAUDE.md, Stage 2.")
+    top_k = max(1, min(int(top_k), 20))
+    where, params = ["true"], {}
+    if ticker:
+        where.append("ticker = %(ticker)s")
+        params["ticker"] = ticker.strip().upper()
+    if (f := _norm(form, FORMS, "form")):
+        where.append("form = %(form)s")
+        params["form"] = f
+    if (s := _norm(section, SECTIONS, "section")):
+        where.append("section = %(section)s")
+        params["section"] = s
+    params |= {"qvec": await asyncio.to_thread(embed_query, query), "qtext": query, "top_k": top_k}
+    cols, rows, _ = await db.fetch(SEARCH_SQL.format(where=" AND ".join(where)), params)
+    results = [dict(zip(cols, r)) for r in rows]
+    out = {"results": results}
+    if not results:
+        out["note"] = "No passages matched. Check the ticker/form/section filters (S-1s exist only for 2015+ IPOs; S-1s have no 'mda')."
+    return out
+
 
 
 @mcp.tool()
