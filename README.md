@@ -14,7 +14,7 @@ you'll be given a `VOYAGE_API_KEY`.
      (e.g. `~/code` in your Ubuntu terminal), not under `C:\` or `/mnt/c`. On the Windows
      filesystem, bind mounts are slow and file-change events don't reach the container.
    - Apple Silicon and Intel Macs are both supported (multi-arch images).
-2. **Clone:** `git clone <repo URL> && cd sec-agentic-search`
+2. **Clone:** `git clone https://github.com/sathvikparasa/sec-agentic-search && cd sec-agentic-search`
 3. **Pull the images** (~1.2 GB; do this on good Wi-Fi): `docker compose pull`
 4. **Set the key** you were given (every new terminal, before `docker compose up`):
    `export VOYAGE_API_KEY=...` (PowerShell users: run this inside WSL)
