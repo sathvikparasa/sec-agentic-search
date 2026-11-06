@@ -14,6 +14,8 @@ import os
 from functools import lru_cache
 from importlib.metadata import version
 
+from mcp.server.mcpserver.exceptions import ToolError
+
 PROVIDER = "voyage"
 MODEL_NAME = "voyage-4-lite"
 EMBED_DIM = 512
@@ -28,7 +30,7 @@ NO_KEY = (
 @lru_cache(maxsize=1)
 def _client():
     if not os.environ.get("VOYAGE_API_KEY"):
-        raise RuntimeError(NO_KEY)
+        raise ToolError(NO_KEY)  # a ToolError, so the agent (and the attendee) sees the message
     import voyageai
 
     # The client picks the endpoint from the key: Atlas model API keys go to ai.mongodb.com.
@@ -37,7 +39,12 @@ def _client():
 
 @lru_cache(maxsize=4096)
 def _query_vec(text: str) -> tuple[float, ...]:
-    res = _client().embed([text], model=MODEL_NAME, input_type="query", output_dimension=EMBED_DIM)
+    client = _client()
+    try:
+        res = client.embed([text], model=MODEL_NAME, input_type="query", output_dimension=EMBED_DIM)
+    except Exception as e:  # bad key, rate limit, network: tell the agent what happened
+        raise ToolError(f"Embedding the query with Voyage failed ({type(e).__name__}: {e}). "
+                        "Check VOYAGE_API_KEY and your network connection.") from e
     return tuple(res.embeddings[0])
 
 
