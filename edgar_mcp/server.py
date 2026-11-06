@@ -21,16 +21,12 @@ mcp = MCPServer(
     "edgar",
     instructions=(
         "Tools over SEC EDGAR data for ~40 US-listed tech companies: XBRL financial facts "
-        "(query_financials) and the text of 10-K and S-1 filings (search_filings). "
+        "(query_financials) and the text of 10-K and S-1 filings (search_filings, get_section). "
         "Cite fact ids / chunk ids and filing URLs in answers."
     ),
 )
 
 MAX_ROWS = 200
-
-
-class NotBuiltYet(ToolError, NotImplementedError):
-    """Raised by the stubs. A ToolError, so the calling agent sees the message."""
 
 
 @mcp.tool()
@@ -62,6 +58,8 @@ async def query_financials(sql: str) -> dict:
             frame, fy, fp, form, filed, accession)
       companies(cik, ticker, name, ipo_date, fiscal_year_end)
       filings(accession, cik, ticker, form, original_form, filed, period_end, fiscal_year, url)
+      revenue(cik, ticker, period_type, fiscal_year, start_date, end_date, frame, value, unit,
+              source_concept, fact_id, accession, filed)
 
     How facts work
     - One row per company, concept, unit and period, already deduplicated: when a value was reported
@@ -71,6 +69,11 @@ async def query_financials(sql: str) -> dict:
       CashAndCashEquivalentsAtCarryingValue, NetCashProvidedByUsedInOperatingActivities,
       EarningsPerShareDiluted. Not sure of a tag? Look it up:
       SELECT DISTINCT concept FROM facts WHERE ticker = 'ABNB' AND concept ILIKE '%income%'.
+    - REVENUE: use the `revenue` view, not facts. Companies tag revenue with different concepts
+      (Revenues, RevenueFromContractWithCustomerExcludingAssessedTax, SalesRevenueNet, ...) and some
+      switched tags over time. The view picks one per company and period. Querying a single revenue
+      tag silently drops companies from rankings. source_concept shows which tag was used; cite
+      fact_id.
     - period_type: 'annual' (a fiscal year), 'quarterly' (3 months) or 'instant' (balance-sheet
       value at one date; start_date is NULL). Always filter on it or you'll mix annual and quarterly
       values. Q4 is rarely reported on its own: Q4 = annual - (Q1 + Q2 + Q3).
@@ -82,7 +85,7 @@ async def query_financials(sql: str) -> dict:
       fiscal 2020 number repeated in a 2022 10-K has fy = 2022. Don't filter on fy.
     - unit: 'USD' (raw dollars, not thousands or millions), 'USD/shares' (per share), 'shares',
       'pure' (ratios). Filter on unit when comparing values.
-    - Citing: select f.id and accession; the filing's link is filings.url.
+    - Citing: select f.id (or revenue.fact_id) and accession; the filing's link is filings.url.
 
     Limits: one SELECT (or WITH) statement; read-only; 5 s timeout; at most 200 rows come back,
     so aggregate, ORDER BY and LIMIT in SQL.
@@ -192,7 +195,8 @@ async def search_filings(
 
     Returns {results: [{chunk_id, ticker, form, filed, section, accession, url, score, text}]},
     best first. Each passage is ~400 words. Cite chunk_id and url. Several narrow searches beat
-    one broad one; if results look off-topic, rephrase or add filters.
+    one broad one; if results look off-topic, rephrase or add filters. To read around a passage,
+    use get_section.
     """
     top_k = max(1, min(int(top_k), 20))
     where, params = ["true"], {}
@@ -214,6 +218,8 @@ async def search_filings(
     return out
 
 
+PAGE_CHARS = 20_000
+
 
 @mcp.tool()
 @logged
@@ -222,9 +228,51 @@ async def get_section(
     form: str,
     section: str,
     fy: int | None = None,
+    offset: int = 0,
 ) -> dict:
-    """TODO (stage 3, optional): return the full text of one section of one filing, capped.
+    """Read the full text of one section of one filing, a page (up to 20,000 characters) at a time.
 
-    See CLAUDE.md -> "Stage 3".
+    Use it after search_filings when a passage isn't enough: to read the context around it, or to
+    read a whole discussion (e.g. how MD&A explains a year's revenue growth). Sections are long
+    (often 50k-300k characters), so locate with search_filings first and read only what you need.
+
+    Args
+      ticker: e.g. 'ABNB'.
+      form: '10-K' or 'S-1'.
+      section: 'business', 'risk_factors' or 'mda' ('mda' exists for 10-Ks only).
+      fy: fiscal year of the 10-K (default: the latest one). Ignored for S-1.
+      offset: character offset to start reading from; pass next_offset from the previous call.
+
+    Returns {ticker, form, original_form, fiscal_year, filed, section, accession, url,
+    total_chars, offset, next_offset, text}. next_offset is null when you've reached the end.
+    Cite the accession and url.
     """
-    raise NotBuiltYet("get_section isn't built yet. See CLAUDE.md, Stage 3.")
+    f = _norm(form, FORMS, "form")
+    s = _norm(section, SECTIONS, "section")
+    params = {"ticker": ticker.strip().upper(), "form": f, "section": s}
+    year_filter = ""
+    if fy is not None and f == "10-K":
+        year_filter = "AND fl.fiscal_year = %(fy)s"
+        params["fy"] = int(fy)
+    cols, rows, _ = await db.fetch(
+        f"""SELECT fl.ticker, fl.form, fl.original_form, fl.fiscal_year, fl.filed, s.section,
+                   fl.accession, fl.url, length(s.text) AS total_chars,
+                   substr(s.text, %(start)s, {PAGE_CHARS}) AS text
+            FROM sections s JOIN filings fl USING (accession)
+            WHERE fl.ticker = %(ticker)s AND fl.form = %(form)s AND s.section = %(section)s {year_filter}
+            ORDER BY fl.filed DESC LIMIT 1""",
+        params | {"start": max(0, int(offset)) + 1},
+    )
+    if not rows:
+        _, avail, _ = await db.fetch(
+            "SELECT fl.form, fl.fiscal_year, s.section FROM sections s JOIN filings fl USING (accession) "
+            "WHERE fl.ticker = %(ticker)s ORDER BY fl.filed DESC", params)
+        if not avail:
+            raise ToolError(f"No filings for ticker {params['ticker']!r}.")
+        listing = ", ".join(f"{a[0]} fy={a[1]} {a[2]}" for a in avail)
+        raise ToolError(f"No such section. Available for {params['ticker']}: {listing}")
+    out = dict(zip(cols, rows[0]))
+    end = max(0, int(offset)) + len(out["text"])
+    out["offset"] = max(0, int(offset))
+    out["next_offset"] = end if end < out["total_chars"] else None
+    return out

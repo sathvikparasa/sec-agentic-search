@@ -7,7 +7,7 @@ writes the answer.
 
 ## Where you are
 
-**Branch `stage-2`:** `query_financials` and `search_filings` are built. Next: stage 3, `get_section` and the revenue fix.
+**Branch `stage-3` (finished version):** all tools are built, including `get_section` and the `revenue` view.
 
 ## Rules
 
@@ -56,6 +56,12 @@ facts(id, cik, ticker, concept, unit, value, period_type, fiscal_year, start_dat
       frame, fy, fp, form, filed, accession)
     one row per (company, us-gaap concept, unit, period); see quirks below
 
+revenue(cik, ticker, period_type, fiscal_year, start_date, end_date, frame, value, unit,
+        source_concept, fact_id, accession, filed)          -- a VIEW over facts
+    one revenue series per company: for each period, the highest-priority revenue tag present
+    (Revenues > RevenueFromContractWithCustomerExcludingAssessedTax > ...IncludingAssessedTax >
+    RevenuesNetOfInterestExpense > SalesRevenueNet > SalesRevenueServicesNet). USD, annual + quarterly.
+
 sections(accession, section, text)
     full extracted text: section in ('business', 'risk_factors', 'mda'); S-1s have no 'mda'
 
@@ -92,6 +98,8 @@ pgvector cosine distance is `embedding <=> %s::vector` (smaller = closer).
    `Revenues`, `RevenueFromContractWithCustomerExcludingAssessedTax` (common since the 2018 revenue
    standard), `SalesRevenueNet` (older), and others; some switched tags over time. Querying one tag
    silently drops companies from a ranking, and the answer still sounds confident.
+   **Fix (stage 3): query the `revenue` view** for any revenue question; `source_concept` shows
+   which tag was used and `fact_id` is the citation.
 6. **Units.** `unit` is `USD` (raw dollars, not thousands or millions), `USD/shares`, `shares` or
    `pure`. Filing *text* usually says "in millions"; facts never do.
 7. **Amendments.** 10-K/As exist for some companies. The text corpus uses original 10-Ks only;
@@ -124,8 +132,9 @@ pgvector cosine distance is `embedding <=> %s::vector` (smaller = closer).
 - Returns the full text of one section of one filing from `sections`, capped per call (page
   through long sections), with filing metadata and URL for citation. `fy` picks which 10-K
   (default: latest).
-- Plus: fix the revenue-tag problem (quirk 5) so cross-company revenue questions stop silently
-  dropping companies.
+- `offset` pages through long sections (`next_offset` in the result).
+- Plus the revenue fix: the `revenue` view (schema above), documented in the `query_financials`
+  docstring so the agent uses it for every revenue question.
 
 ## Test questions
 
