@@ -94,7 +94,6 @@ After you edit a tool, the server reloads by itself (about a second). In Claude 
 | `edgar_mcp/` | The MCP server. **You edit `edgar_mcp/server.py`.** DB pool, embedding helper and tool-call logging are done. |
 | `CLAUDE.md` / `AGENTS.md` | Schema, tool contracts, EDGAR quirks, for your coding agent to read |
 | `tests/` | Smoke tests for the finished tools (`docker compose run --rm app smoke`) |
-| `evals/` | 30 questions with answers computed from the data (instructor-run) |
 | `scripts/fetch/` | How the data was built from EDGAR (instructor-only; you never need it) |
 
 Data: 40 US-listed tech companies; XBRL facts (annual, quarterly, balance-sheet); the 3 latest
@@ -130,5 +129,3 @@ reloads on checkout, and `CLAUDE.md` changes with the branch too.
   (≤ 8 req/s, cached in `data/raw/`; writes `docker/db/edgar.dump` and `data/report.md`).
 - Publish: upload the dump to the `data-v1` release, push to `main`, and the `images` workflow
   builds multi-arch images to GHCR. Set `IMAGE_PREFIX` in `.env` to `ghcr.io/<owner>/<repo>`.
-- Evals: `evals/setup_worktrees.sh`, then
-  `docker compose exec app python -m evals.run --stage 2` and `--stage 3`.
